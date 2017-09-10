@@ -2,6 +2,17 @@
 import sys
 import json
 import re
+import os
+import glob
+
+
+MODULE = sys.stdout
+
+
+def py_ffi_out(*code):
+    global MODULE
+    print( ' '.join(code), file=MODULE )
+
 
 
 comment_level = 0
@@ -106,106 +117,160 @@ def handle_typedef(desc, should_output=False):
         FFI_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         UCTYPES_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         if comment_level > 1:
-            print("# typedef struct %s" % desc["name"])
+            py_ffi_out("# typedef struct %s" % desc["name"])
     elif desc["type"]["tag"] in (":union", "union"):
         FFI_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         UCTYPES_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         if comment_level > 1:
-            print("# typedef union %s" % desc["name"])
+            py_ffi_out("# typedef union %s" % desc["name"])
     elif desc["type"]["tag"] == ":pointer":
         FFI_TYPE_MAP[desc["name"]] = "p"
         # TODO
         UCTYPES_TYPE_MAP[desc["name"]] = "(uctypes.PTR | %d, uctypes.VOID)"
         if comment_level > 1:
-            print("# typedef ptr %s" % desc["name"])
+            py_ffi_out("# typedef ptr %s" % desc["name"])
     elif desc["type"]["tag"] == ":function-pointer":
         FFI_TYPE_MAP[desc["name"]] = "C"
         UCTYPES_TYPE_MAP[desc["name"]] = "(uctypes.PTR | %d, uctypes.VOID)"
         if comment_level > 1:
-            print("# typedef func-ptr %s" % desc["name"])
+            py_ffi_out("# typedef func-ptr %s" % desc["name"])
     else:
         FFI_TYPE_MAP[desc["name"]] = FFI_TYPE_MAP[desc["type"]["tag"]]
         UCTYPES_TYPE_MAP[desc["name"]] = UCTYPES_TYPE_MAP[desc["type"]["tag"]]
         if comment_level > 1:
-            print("# typedef %s" % desc["name"])
+            py_ffi_out("# typedef %s" % desc["name"])
 
 
-if len(sys.argv) < 3 or len(sys.argv) > 4:
-    print("usage: %s <proj>.json <c2ffi>.json [<c2ffi-macro>.h]" % sys.argv[0])
-    sys.exit(1)
+if 0:
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        py_ffi_out("usage: %s <proj>.json <c2ffi>.json [<c2ffi-macro>.h]" % sys.argv[0])
+        sys.exit(1)
 
 
-with open(sys.argv[1]) as f:
-    proj = json.load(f)
+TREE='src'
+HOME = os.getcwd()
 
-with open(sys.argv[2]) as f:
-    data = json.load(f)
+site_packages='%s/site-packages' % os.getenv('MICROPYPATH','.')
+lib_dynload = '%s/lib-dynload' % os.getenv('MICROPYPATH','.')
+arch = os.getenv('TRIPLE', os.popen('arch') )
 
-print("import ffi")
-print("import uctypes")
-print()
-print('l = ffi.open("%s")' % proj["lib"])
-print()
+os.system('mkdir -p %s'% site_packages)
+os.system('mkdir -p %s'% lib_dynload)
 
 
-for desc in data:
-    loc = desc["location"]
-    process = matches_filters(loc, proj)
+for module_file in glob.glob('%s/mod_*.py' % TREE):
 
-    # We need to collect all types for future references
-    if desc["tag"] == "typedef":
-#        print("Processing %s" % loc)
-        handle_typedef(desc, process)
-        continue
+    module_name = module_file.rsplit('/mod_',1)[-1][:-3]
+    module_dest ='%s/%s' % ( site_packages, module_name)
+    os.system('mkdir -p %s' % module_dest)
+    print('Building into', module_dest )
 
-    if not process:
+    os.chdir('%s/%s' % (TREE, module_name ) )
+    objs=[]
+    for c_file in glob.glob('*.c'):
+        build_obj = 'gcc -c -Wall -Werror -fpic -o %s.o %s' % (c_file[:-2],c_file)
+        print('\t', build_obj)
+        os.system(build_obj)
+        objs.append(c_file[:-2]+'.o')
+
+    soname = '%s/_%s-%s-%s.so' % (lib_dynload,module_name,'1.9', arch )
+
+    build_so = 'gcc -shared -o %s %s' %( soname , ' '.join( objs ) )
+    print("\t",build_so)
+    os.system(build_so)
+    os.system('rm *.o;cat *.h >> ../%s.h' % module_name )
+    os.chdir('..')
+    os.system('c2ffi %s.h > %s.c2ffi' % (module_name,module_name) )
+
+    with open( '%s.c2ffi' % module_name ) as f:
+        data = json.load(f)
+        proj = { 'lib' : """ '%s/lib-dynload/_%s.so' % ( os.getenv('MICROPYPATH','.'), '"""+ module_name + "')" }
+
+    os.unlink('%s.c2ffi' % module_name )
+    os.chdir(HOME)
+
+    MODULE = open('%s/%s/__init__.py' % (site_packages,module_name) ,'w')
+
+    py_ffi_out("""import os
+import sys
+import ffi
+import uctypes
+
+l = "_""" + module_name +"""-%s-%s.so" % ('1.9', os.getenv('TRIPLE',os.popen('arch')) )
+l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYPATH','.') , l )
+print("Loading native lib",l,file=sys.stderr)
+l = ffi.open(l)
+""" )
+
+
+    for desc in data:
+        loc = desc["location"]
+        process = matches_filters(loc, proj)
+
+        # We need to collect all types for future references
+        if desc["tag"] == "typedef":
+            handle_typedef(desc, process)
+            continue
+
+        if not process:
+            if comment_level > 0:
+                py_ffi_out("# Ignoring %s" % loc)
+            #continue
+
         if comment_level > 0:
-            print("# Ignoring %s" % loc)
-        continue
-    if comment_level > 0:
-        print("# Processing %s" % loc)
+            py_ffi_out("# Processing %s" % loc)
 
-    if desc["tag"] == "function":
-        params = [conv_ffi_type(x["type"]) for x in desc["parameters"]]
-        s = '%s = l.func("%s", "%s", "%s")' % (desc["name"], conv_ffi_type(desc["return-type"]), desc["name"], "".join(params))
-        if desc.get("inline", False):
-            print("#%s" % s)
+        if desc["tag"] == "function":
+            params = [conv_ffi_type(x["type"]) for x in desc["parameters"]]
+            s = '%s = l.func("%s", "%s", "%s")' % (desc["name"], conv_ffi_type(desc["return-type"]), desc["name"], "".join(params))
+            if desc.get("inline", False):
+                py_ffi_out("#%s" % s)
+            else:
+                py_ffi_out(s)
+        elif desc["tag"] == "enum":
+            py_ffi_out("# %s" % desc["name"])
+            for f in desc["fields"]:
+                py_ffi_out("%s = %s" % (f["name"], f["value"]))
+        elif desc["tag"] == "struct":
+            py_ffi_out("%s = {" % desc["name"])
+            for f in desc["fields"]:
+                py_ffi_out('    "%s": %s,' % (f["name"], conv_uctypes_type(f["type"], f["bit-offset"] / 8)))
+
+            if desc["bit-size"] != 0:
+                # This doesn't have to be true due to alignment
+                #assert desc["bit-size"] == f["bit-offset"] + f["bit-size"]
+                pass
+
+            py_ffi_out("}")
         else:
-            print(s)
-    elif desc["tag"] == "enum":
-        print("# %s" % desc["name"])
-        for f in desc["fields"]:
-            print("%s = %s" % (f["name"], f["value"]))
-    elif desc["tag"] == "struct":
-        print("%s = {" % desc["name"])
-        for f in desc["fields"]:
-            print('    "%s": %s,' % (f["name"], conv_uctypes_type(f["type"], f["bit-offset"] / 8)))
-#            print(f)
-        if desc["bit-size"] != 0:
-            # This doesn't have to be true due to alignment
-            #assert desc["bit-size"] == f["bit-offset"] + f["bit-size"]
+            py_ffi_out(desc)
+            assert 0, desc["tag"]
             pass
-#        print(desc)
-        print("}")
-    else:
-        print(desc)
-        assert 0, desc["tag"]
-        pass
+
+    py_ffi_out("\n"*2)
+    py_ffi_out("#","="*79)
+    py_ffi_out("\n"*2)
+    MODULE.close()
+
+    os.system('cat %s >> %s/__init__.py' % ( module_file, module_dest ) )
 
 
-if len(sys.argv) > 3:
-    with open(sys.argv[3]) as f:
-        print("\n# Constants\n")
-        items = []
-        for l in f:
-            if l.startswith("/* "):
-                loc = l[3:-4]
-            elif l.startswith("#define "):
-                if matches_filters(loc, proj):
-                    _, name, val = l.rstrip().split(" ", 2)
-                    loc = loc.split(":")
-                    items.append((loc[0], int(loc[1]), name, val))
-        items.sort()
-        for fname, line, name, val in items:
-            #print("#%s:%s" % (fname, line))
-            print("%s = %s" % (name, val))
+
+
+if 0:
+    if len(sys.argv) > 3:
+        with open(sys.argv[3]) as f:
+            py_ffi_out("\n# Constants\n")
+            items = []
+            for l in f:
+                if l.startswith("/* "):
+                    loc = l[3:-4]
+                elif l.startswith("#define "):
+                    if matches_filters(loc, proj):
+                        _, name, val = l.rstrip().split(" ", 2)
+                        loc = loc.split(":")
+                        items.append((loc[0], int(loc[1]), name, val))
+            items.sort()
+            for fname, line, name, val in items:
+                #py_ffi_out("#%s:%s" % (fname, line))
+                py_ffi_out("%s = %s" % (name, val))
