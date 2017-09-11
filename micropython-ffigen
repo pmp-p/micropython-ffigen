@@ -216,7 +216,10 @@ import sys
 import ffi
 import uctypes
 
-l = "_""" + module_name +"""-%s-%s.so" % ( '.'.join( map(str,sys.implementation.version)), os.getenv('TRIPLE',os.popen('arch')) )
+l = "_""" + module_name +"""-%s-%s.so" % (
+        '.'.join( map(str,sys.implementation.version)),
+        os.getenv('TRIPLE',os.popen('arch').read().strip())
+    )
 l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYPATH','.') , l )
 print("Loading native lib",l,file=sys.stderr)
 l = ffi.open(l)
