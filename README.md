@@ -1,6 +1,6 @@
 Original :
 --------
-micropython-ffigen is experimental tool to generare external library bindings
+micropython-ffigen is experimental tool to generate external library bindings
 for ffi/uctypes modules of MicroPython https://github.com/micropython/micropython
 from C header files.
 
@@ -11,10 +11,11 @@ which in turn depends on LLVM and Clang (http://llvm.org/).
 Now:
 ----
 micropython-ffigen is experimental tool to generate libraries and bindings
-lib goes into:
+
+* lib goes into:
   ${MICROPYPATH}/lib-dynload/_${module_name}-${upy-version}-${TRIPLE or arch}.so
 
-python glue code and module body get concat into:
+* python glue code and module body get concat into:
   ${MICROPYPATH}/site-packages/${module_name}/__init__.py
 
 
