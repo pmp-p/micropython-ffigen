@@ -31,7 +31,10 @@ import sys
 import ffi
 import uctypes
 
-l = "_lcm1602-%s-%s.so" % ( '.'.join( map(str,sys.implementation.version)), os.getenv('TRIPLE',os.popen('arch')) )
+l = "_lcm1602-%s-%s.so" % (
+        '.'.join( map(str,sys.implementation.version)),
+        os.getenv('TRIPLE',os.popen('arch').read().strip())
+    )
 l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYPATH','.') , l )
 print("Loading native lib",l,file=sys.stderr)
 l = ffi.open(l)
@@ -55,7 +58,11 @@ lcd_clear = l.func("v", "lcd_clear", "p")
 lcd_set_cursor = l.func("v", "lcd_set_cursor", "pBB")
 lcd_add_char = l.func("v", "lcd_add_char", "ppB")
 
+
+
 # ===============================================================================
+
+
 
 
 if __name__=='__main__':
