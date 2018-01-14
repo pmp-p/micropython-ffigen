@@ -258,10 +258,10 @@ for module_file in glob.glob('%s/mod_*.py' % TREE):
 import sys
 import ffi
 import uctypes
-if os.access("/system/bin/linker64",0):ARCH="android-armv8"
-elif os.access("/system/bin/linker",0):ARCH="android-armv7"
-else: ARCH= "linux-%s" % os.popen('arch').read().strip()
-l = "_""" + module_name +"""-%s.so" % ARCH
+if os.access("/system/bin/linker64",0):l="android-armv8"
+elif os.access("/system/bin/linker",0):l="android-armv7"
+else: l= "linux-%s" % os.popen('arch').read().strip()
+l = "_""" + module_name +"""-%s.so" % l
 l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYHOME','.') , l )
 print("Loading native lib",l,file=sys.stderr)
 l = ffi.open(l)
@@ -312,7 +312,7 @@ l = ffi.open(l)
             assert 0, desc["tag"]
             pass
 
-    py_ffi_out("\n"*2)
+    py_ffi_out("\ndel l")
     py_ffi_out("#","="*79)
     py_ffi_out("\n"*2)
     MODULE.close()
