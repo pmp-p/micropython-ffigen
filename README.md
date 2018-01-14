@@ -30,10 +30,10 @@ import os
 import sys
 import ffi
 import uctypes
-if os.access("/system/bin/linker64",0):ARCH="android-armv8"
-elif os.access("/system/bin/linker",0):ARCH="android-armv7"
-else: ARCH= "linux-%s" % os.popen('arch').read().strip()
-l = "_lcm1602-%s.so" % ARCH
+if os.access("/system/bin/linker64",0):l="android-armv8"
+elif os.access("/system/bin/linker",0):l="android-armv7"
+else: l= "linux-%s" % os.popen('arch').read().strip()
+l = "_lcm1602-%s.so" % l
 l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYHOME','.') , l )
 print("Loading native lib",l,file=sys.stderr)
 l = ffi.open(l)
@@ -57,12 +57,8 @@ lcd_clear = l.func("v", "lcd_clear", "p")
 lcd_set_cursor = l.func("v", "lcd_set_cursor", "pBB")
 lcd_add_char = l.func("v", "lcd_add_char", "ppB")
 
-
-
+del l
 # ===============================================================================
-
-
-
 
 if __name__=='__main__':
   ...
