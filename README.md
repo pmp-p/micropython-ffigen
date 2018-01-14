@@ -13,7 +13,7 @@ Now:
 micropython-ffigen is experimental tool to generate libraries and bindings
 
 * lib goes into:
-  `${MICROPYPATH}/lib-dynload/_${module_name}-${upy-version}-${TRIPLE or arch}.so`
+  `${MICROPYPATH}/lib-dynload/_${module_name}-(android/linux)-(arch).so`
 
 * python glue code and module body get concat into:
   `${MICROPYPATH}/site-packages/${module_name}/__init__.py`
@@ -30,17 +30,16 @@ import os
 import sys
 import ffi
 import uctypes
-
-l = "_lcm1602-%s-%s.so" % (
-        '.'.join( map(str,sys.implementation.version)),
-        os.getenv('TRIPLE',os.popen('arch').read().strip())
-    )
-l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYPATH','.') , l )
+if os.access("/system/bin/linker64",0):ARCH="android-armv8"
+elif os.access("/system/bin/linker",0):ARCH="android-armv7"
+else: ARCH= "linux-%s" % os.popen('arch').read().strip()
+l = "_lcm1602-%s.so" % ARCH
+l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYHOME','.') , l )
 print("Loading native lib",l,file=sys.stderr)
 l = ffi.open(l)
 
-open_i2c = l.func("i", "open_i2c", "pB")
-close_i2c = l.func("v", "close_i2c", "i")
+i2c_open = l.func("i", "i2c_open", "pB")
+i2c_close = l.func("v", "i2c_close", "i")
 set_i2c_data = l.func("i", "set_i2c_data", "iB")
 get_i2c_data = l.func("i", "get_i2c_data", "ip")
 _lcd = {
