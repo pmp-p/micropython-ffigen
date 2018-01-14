@@ -1,12 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.5
 import sys
 import json
 import re
 import os
 import glob
 
-
-UPY_VERSION = '1.9.2'
 MODULE = sys.stdout
 
 
@@ -15,9 +13,13 @@ def py_ffi_out(*code):
     print( ' '.join(code), file=MODULE )
 
 
-
 comment_level = 0
 
+# https://github.com/ffi/ffi/wiki/Types
+#
+# nm --dynamic --demangle libNAME.so
+# nm -g libNAME.a
+#
 FFI_TYPE_MAP = {
     ":void": "v",
     ":int": "i",
@@ -82,69 +84,94 @@ def matches_filters(loc, proj):
 
 
 def conv_ffi_type(rec):
-    if rec["tag"] == ":pointer":
+    tag = rec["tag"]
+
+    if tag == ":pointer":
         return "p"
-    if rec["tag"] == ":array":
+
+    if tag == ":array":
         return "p"
-    if rec["tag"] in FFI_TYPE_MAP:
+
+    if tag in FFI_TYPE_MAP:
         return FFI_TYPE_MAP[rec["tag"]]
+
     assert 0, rec["tag"]
 
+
+
 def conv_uctypes_type(rec, offset):
-    if rec["tag"] in UCTYPES_TYPE_MAP:
+    tag = rec["tag"]
+
+    if tag in UCTYPES_TYPE_MAP:
         v = UCTYPES_TYPE_MAP[rec["tag"]]
         if "%d" in v:
             return v % offset
-        else:
-            return "%s | %d" % (v, offset)
-    if rec["tag"] == ":pointer":
+
+        return "%s | %d" % (v, offset)
+
+    if tag == ":pointer":
         if rec["type"]["tag"] == ":struct":
             return "(uctypes.PTR | %d, %s)" % (offset, rec["type"]["name"])
         elif rec["type"]["tag"] == ":pointer":
             return "(uctypes.PTR | %d, %s)" % (offset, "uctypes.VOID")
-        else:
-            if rec["type"]["tag"] not in UCTYPES_TYPE_MAP:
-                assert 0, rec
-            return "(uctypes.PTR | %d, %s)" % (offset, UCTYPES_TYPE_MAP[rec["type"]["tag"]])
-    if rec["tag"] == ":array":
+
+        if rec["type"]["tag"] not in UCTYPES_TYPE_MAP:
+            assert 0, rec
+        return "(uctypes.PTR | %d, %s)" % (offset, UCTYPES_TYPE_MAP[rec["type"]["tag"]])
+
+
+
+    if tag == ":array":
         if rec["type"]["tag"] == ":function-pointer":
             return "(uctypes.ARRAY | %d, %d, (uctypes.PTR,))  # TODO: array of func-ptr" % \
                 (offset, rec["size"])
         return "(uctypes.ARRAY | %d, %d, %s)" % (offset, rec["size"], UCTYPES_TYPE_MAP[rec["type"]["tag"]])
-    if rec["tag"] == ":function-pointer":
+
+    if tag == ":function-pointer":
             return "(uctypes.PTR | %d, %s)  # TODO: func-ptr" % (offset, "uctypes.VOID")
-    if rec["tag"] == "union":
+
+    if tag == "union":
         return "# TODO: union"
+
     assert 0, rec["tag"]
 
 
 def handle_typedef(desc, should_output=False):
-    if desc["type"]["tag"] in (":struct", "struct"):
+    tag = desc["type"]["tag"]
+
+    if tag in (":struct", "struct"):
         FFI_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         UCTYPES_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         if comment_level > 1:
             py_ffi_out("# typedef struct %s" % desc["name"])
-    elif desc["type"]["tag"] in (":union", "union"):
+        return
+
+    if tag in (":union", "union"):
         FFI_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         UCTYPES_TYPE_MAP[desc["name"]] = desc["type"]["name"]
         if comment_level > 1:
             py_ffi_out("# typedef union %s" % desc["name"])
-    elif desc["type"]["tag"] == ":pointer":
+        return
+
+    if tag == ":pointer":
         FFI_TYPE_MAP[desc["name"]] = "p"
         # TODO
         UCTYPES_TYPE_MAP[desc["name"]] = "(uctypes.PTR | %d, uctypes.VOID)"
         if comment_level > 1:
             py_ffi_out("# typedef ptr %s" % desc["name"])
-    elif desc["type"]["tag"] == ":function-pointer":
+        return
+
+    if tag == ":function-pointer":
         FFI_TYPE_MAP[desc["name"]] = "C"
         UCTYPES_TYPE_MAP[desc["name"]] = "(uctypes.PTR | %d, uctypes.VOID)"
         if comment_level > 1:
             py_ffi_out("# typedef func-ptr %s" % desc["name"])
-    else:
-        FFI_TYPE_MAP[desc["name"]] = FFI_TYPE_MAP[desc["type"]["tag"]]
-        UCTYPES_TYPE_MAP[desc["name"]] = UCTYPES_TYPE_MAP[desc["type"]["tag"]]
-        if comment_level > 1:
-            py_ffi_out("# typedef %s" % desc["name"])
+        return
+
+    FFI_TYPE_MAP[desc["name"]] = FFI_TYPE_MAP[desc["type"]["tag"]]
+    UCTYPES_TYPE_MAP[desc["name"]] = UCTYPES_TYPE_MAP[desc["type"]["tag"]]
+    if comment_level > 1:
+        py_ffi_out("# typedef %s" % desc["name"])
 
 
 #======================== auto builder ==========================================================
@@ -152,15 +179,24 @@ def handle_typedef(desc, should_output=False):
 TREE='src'
 HOME = os.getcwd()
 
-site_packages='%s/site-packages' % os.getenv('MICROPYPATH','.')
-lib_dynload = '%s/lib-dynload' % os.getenv('MICROPYPATH','.')
-arch = os.getenv('TRIPLE', os.popen('arch') )
+site_packages='%s/site-packages' % os.getenv('MICROPYHOME','.')
+lib_dynload = '%s/lib-dynload' % os.getenv('MICROPYHOME','.')
+
+if os.access('/system/bin/linker64',0):
+    ARCH = 'android-armv8'
+elif os.access('/system/bin/linker',0):
+    ARCH = 'android-armv7'
+
 
 os.system('mkdir -p %s'% site_packages)
 os.system('mkdir -p %s'% lib_dynload)
 
 
 for module_file in glob.glob('%s/mod_*.py' % TREE):
+
+    if os.path.exists('%s.skip' % module_file ):
+        print('Skipping %s' % module_file)
+        continue
     print()
     print()
 
@@ -171,7 +207,7 @@ for module_file in glob.glob('%s/mod_*.py' % TREE):
     os.system('mkdir -p %s' % module_dest)
 
 
-    soname = '%s/_%s-%s-%s.so' % (lib_dynload,module_name,UPY_VERSION, arch )
+    soname = '%s/_%s-%s.so' % (lib_dynload,module_name, ARCH )
 
     print('\tBuilding shared (bin)',soname)
 
@@ -186,23 +222,30 @@ for module_file in glob.glob('%s/mod_*.py' % TREE):
         os.chdir('%s/%s' % (TREE, module_name ) )
         objs=[]
         for c_file in glob.glob('*.c'):
-            build_obj = 'gcc -c -fsanitize=bool -Wall -Werror -fpic -o %s.o %s' % (c_file[:-2],c_file)
+            build_obj = 'gcc -O3 -c -fsanitize=bool -Wall -Werror -fpic -o %s.o %s' % (c_file[:-2],c_file)
+            print('\t', build_obj)
+            os.system(build_obj)
+            objs.append(c_file[:-2]+'.o')
+        for c_file in glob.glob('*.cpp'):
+            build_obj = 'gcc -O3 -c -fsanitize=bool -Wall -Werror -fpic -o %s.o %s' % (c_file[:-2],c_file)
             print('\t', build_obj)
             os.system(build_obj)
             objs.append(c_file[:-2]+'.o')
 
-        build_so = 'gcc -shared -o %s %s' %( soname , ' '.join( objs ) )
+
+        build_so = 'gcc -O3 -shared -o %s %s' %( soname , ' '.join( objs ) )
 
         print("\t",build_so)
         os.system(build_so)
-        os.system('rm *.o;cat *.h >> ../%s.h' % module_name )
+        #os.system('rm *.o')
+        os.system('cat *.h > ../%s.h' % module_name )
         os.chdir('..')
 
     os.system('c2ffi %s.h > %s.c2ffi' % (module_name,module_name) )
 
     with open( '%s.c2ffi' % module_name ) as f:
         data = json.load(f)
-        proj = { 'lib' : """ '%s/lib-dynload/_%s.so' % ( os.getenv('MICROPYPATH','.'), '"""+ module_name + "')" }
+        proj = { 'lib' : """ '%s/lib-dynload/_%s.so' % ( os.getenv('MICROPYHOME','.'), '"""+ module_name + "')" }
 
     os.unlink('%s.c2ffi' % module_name )
     os.chdir(HOME)
@@ -215,12 +258,11 @@ for module_file in glob.glob('%s/mod_*.py' % TREE):
 import sys
 import ffi
 import uctypes
-
-l = "_""" + module_name +"""-%s-%s.so" % (
-        '.'.join( map(str,sys.implementation.version)),
-        os.getenv('TRIPLE',os.popen('arch').read().strip())
-    )
-l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYPATH','.') , l )
+if os.access("/system/bin/linker64",0):ARCH="android-armv8"
+elif os.access("/system/bin/linker",0):ARCH="android-armv7"
+else: ARCH= "linux-%s" % os.popen('arch').read().strip()
+l = "_""" + module_name +"""-%s.so" % ARCH
+l = "%s/%s" %( '%s/lib-dynload' % os.getenv('MICROPYHOME','.') , l )
 print("Loading native lib",l,file=sys.stderr)
 l = ffi.open(l)
 """ )
