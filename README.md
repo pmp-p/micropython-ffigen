@@ -13,10 +13,10 @@ Now:
 micropython-ffigen is experimental tool to generate libraries and bindings
 
 * lib goes into:
-  `${MICROPYPATH}/lib-dynload/_${module_name}-(android/linux)-(arch).so`
+  `${MICROPYHOME}/lib-dynload/_${module_name}-(android/linux)-(arch).so`
 
 * python glue code and module body get concat into:
-  `${MICROPYPATH}/site-packages/${module_name}/__init__.py`
+  `${MICROPYHOME}/site-packages/${module_name}/__init__.py`
 
 
 main goal of this new tool is to ease rebuilding H3Droid sdk and eventually support multiarch.
